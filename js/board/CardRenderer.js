@@ -1,4 +1,4 @@
-import { STATS, STAT_KEYS, statValueLabel } from '../data/characters.js';
+import { STATS, STAT_KEYS, STAT_MAX, statValueLabel } from '../data/characters.js';
 
 // ── 캐릭터 시트: 가로로 넓은 직사각형 ──
 const CARD_W = 660, CARD_H = 340;
@@ -76,10 +76,10 @@ export function renderCharacterCard(character, revealedStats = {}, showAllStats 
 
     ctx.textAlign = 'right';
     if (isRevealed) {
-      for (let i = 0; i < 2; i++) {
-        const starX = midX + midW - 12 - (1 - i) * 18;
+      for (let i = 0; i < STAT_MAX; i++) {
+        const starX = midX + midW - 12 - (STAT_MAX - 1 - i) * 16;
         ctx.fillStyle = i < value ? info.color : '#2a2a3a';
-        ctx.font = '15px serif';
+        ctx.font = '13px serif';
         ctx.fillText('★', starX, sy + 10);
       }
     } else {
@@ -109,52 +109,30 @@ export function renderCharacterCard(character, revealedStats = {}, showAllStats 
   const slotY0 = 38;
   for (let i = 0; i < 5; i++) {
     const ty = slotY0 + i * (slotH + slotGap);
-    const isRevealed = showAllStats || revealedTraitIndices.includes(i);
     const isHighlighted = highlightedTraitIndices.includes(i);
-    const trait = traits[i];
 
-    // 슬롯 배경
+    // 타일이 놓일 빈 슬롯 배경
     if (isHighlighted) {
-      ctx.fillStyle = 'rgba(96,165,250,0.2)';
-    } else if (isRevealed) {
-      ctx.fillStyle = 'rgba(96,165,250,0.12)';
+      ctx.fillStyle = 'rgba(96,165,250,0.15)';
     } else {
-      ctx.fillStyle = 'rgba(255,255,255,0.03)';
+      ctx.fillStyle = 'rgba(255,255,255,0.02)';
     }
     ctx.beginPath(); ctx.roundRect(rightX, ty, rightW, slotH, 8); ctx.fill();
 
-    // 테두리
+    // 슬롯 테두리
     if (isHighlighted) {
       ctx.strokeStyle = '#60a5fa';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 2;
       ctx.shadowColor = '#60a5fa';
-      ctx.shadowBlur = 8;
-    } else if (isRevealed) {
-      ctx.strokeStyle = 'rgba(96,165,250,0.4)';
-      ctx.lineWidth = 1;
-      ctx.shadowBlur = 0;
+      ctx.shadowBlur = 6;
     } else {
-      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
       ctx.lineWidth = 1;
       ctx.shadowBlur = 0;
     }
     ctx.beginPath(); ctx.roundRect(rightX, ty, rightW, slotH, 8); ctx.stroke();
     ctx.shadowBlur = 0;
-
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    if (isRevealed && trait) {
-      ctx.fillStyle = '#e2e8f0';
-      ctx.font = 'bold 15px Outfit, sans-serif';
-      ctx.fillText(trait, rightX + rightW / 2, ty + slotH / 2);
-    } else if (isHighlighted) {
-      ctx.fillStyle = '#93c5fd';
-      ctx.font = 'bold 16px Outfit, sans-serif';
-      ctx.fillText('?', rightX + rightW / 2, ty + slotH / 2);
-    } else {
-      ctx.fillStyle = '#4a5568';
-      ctx.font = 'bold 16px Outfit, sans-serif';
-      ctx.fillText('?', rightX + rightW / 2, ty + slotH / 2);
-    }
+    // 텍스트 없음 — 3D 타일 기물이 이 위에 놓임
   }
 
   // 하단 장식
@@ -307,50 +285,60 @@ export function renderPreferenceCardBack() {
 }
 
 /**
- * 특성 타일 앞면 — 직사각형 작은 카드
+ * 특성 타일 (캔버스 비율 = 3D 비율 5.16:1)
  */
-const TRAIT_W = 140, TRAIT_H = 60;
+const TRAIT_W = 516, TRAIT_H = 100;
+
 export function renderTraitTile(traitName) {
   const c = document.createElement('canvas');
   c.width = TRAIT_W; c.height = TRAIT_H;
   const ctx = c.getContext('2d');
 
   ctx.fillStyle = '#1e293b';
-  ctx.beginPath(); ctx.roundRect(0, 0, TRAIT_W, TRAIT_H, 8); ctx.fill();
-  ctx.strokeStyle = '#60a5fa60';
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.roundRect(1, 1, TRAIT_W - 2, TRAIT_H - 2, 8); ctx.stroke();
+  ctx.beginPath(); ctx.roundRect(0, 0, TRAIT_W, TRAIT_H, 12); ctx.fill();
+
+  ctx.strokeStyle = '#60a5fa88';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.roundRect(2, 2, TRAIT_W - 4, TRAIT_H - 4, 10); ctx.stroke();
+
+  const grad = ctx.createLinearGradient(0, 0, 0, TRAIT_H);
+  grad.addColorStop(0, 'rgba(96,165,250,0.1)');
+  grad.addColorStop(0.5, 'rgba(96,165,250,0)');
+  grad.addColorStop(1, 'rgba(96,165,250,0.03)');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.roundRect(0, 0, TRAIT_W, TRAIT_H, 12); ctx.fill();
 
   ctx.fillStyle = '#e2e8f0';
-  ctx.font = 'bold 16px Outfit, sans-serif';
+  ctx.font = 'bold 38px Outfit, sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(traitName, TRAIT_W / 2, TRAIT_H / 2);
+  ctx.fillText(traitName, TRAIT_W / 2, TRAIT_H / 2 + 1);
 
   return c;
 }
 
-/**
- * 특성 타일 뒷면 — "?" 표시
- */
 export function renderTraitTileBack() {
   const c = document.createElement('canvas');
   c.width = TRAIT_W; c.height = TRAIT_H;
   const ctx = c.getContext('2d');
 
-  ctx.fillStyle = '#1a1a2e';
-  ctx.beginPath(); ctx.roundRect(0, 0, TRAIT_W, TRAIT_H, 8); ctx.fill();
-  ctx.strokeStyle = '#4b556340';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.roundRect(1, 1, TRAIT_W - 2, TRAIT_H - 2, 8); ctx.stroke();
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath(); ctx.roundRect(0, 0, TRAIT_W, TRAIT_H, 12); ctx.fill();
 
-  // 대각선 패턴
-  ctx.strokeStyle = '#4b556318';
-  for (let i = -TRAIT_H; i < TRAIT_W + TRAIT_H; i += 10) {
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.roundRect(2, 2, TRAIT_W - 4, TRAIT_H - 4, 10); ctx.stroke();
+
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(0, 0, TRAIT_W, TRAIT_H, 12); ctx.clip();
+  ctx.strokeStyle = 'rgba(75,85,99,0.12)';
+  ctx.lineWidth = 1;
+  for (let i = -TRAIT_H; i < TRAIT_W + TRAIT_H; i += 18) {
     ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i - TRAIT_H, TRAIT_H); ctx.stroke();
   }
+  ctx.restore();
 
-  ctx.fillStyle = '#64748b';
-  ctx.font = 'bold 22px Outfit, sans-serif';
+  ctx.fillStyle = '#475569';
+  ctx.font = 'bold 40px Outfit, sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('?', TRAIT_W / 2, TRAIT_H / 2);
 

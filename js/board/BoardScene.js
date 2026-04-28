@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   renderCharacterCard, renderCardBack,
   renderPreferenceCard, renderPreferenceCardBack,
+  renderTraitTile, renderTraitTileBack,
   renderRoundBoard, renderEmptySlot,
 } from './CardRenderer.js';
 
@@ -250,30 +251,24 @@ export class BoardScene {
         this.meshes[`${npc.id}-pref-${c}`] = pf;
       }
 
-      // ── 특성 클릭 영역 (카드 위 오버레이 — 우측 특성 슬롯 위치) ──
-      // 카드 텍스처 좌표 → 3D 좌표 변환
-      // 카드: CARD_W(2.8) x CARD_H(1.45), 캔버스: 660x340
-      // 특성 슬롯: 캔버스 rightX=412, rightW=232, slotH=44, slotGap=8, slotY0=38
+      // ── 특성 타일 5개 (실제 양면 카드 기물) ──
+      // 캔버스→3D 좌표 변환
       const pxToW = CARD_W / 660, pxToH = CARD_H / 340;
-      const traitSlotW = 232 * pxToW; // ~0.98
-      const traitSlotH = 44 * pxToH;  // ~0.19
-      const traitRightX = 412 * pxToW - CARD_W / 2; // 캔버스 좌표 → 카드 로컬 좌표
-      const traitSlotY0 = 38; // 캔버스 y
+      const traitSlotY0 = 38;
+      const TRAIT_3D_W = 0.98, TRAIT_3D_H = 0.19;
+      const traitBaseX = (412 * pxToW - CARD_W / 2) + (232 * pxToW) / 2;
       for (let t = 0; t < 5; t++) {
         const canvasY = traitSlotY0 + t * (44 + 8);
-        // BoxGeometry top face UV: u → +x, v → +z (Three.js r128+)
-        // 캔버스 y=0이 z=-CARD_H/2(카드 뒤쪽), y=CARD_H이 z=+CARD_H/2(카드 앞쪽)
         const localZ = (canvasY + 44/2) * pxToH - CARD_H / 2;
-        const localX = traitRightX + traitSlotW / 2;
-        const overlay = new THREE.Mesh(
-          new THREE.PlaneGeometry(traitSlotW, traitSlotH),
-          new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, side: THREE.DoubleSide })
-        );
-        overlay.rotation.x = -Math.PI / 2;
-        overlay.position.set(localX, CARD_D + 0.02, localZ);
-        overlay.userData = { type: 'npc-trait', npcId: npc.id, traitIndex: t };
-        g.add(overlay);
-        this.meshes[`${npc.id}-trait-${t}`] = overlay;
+
+        const traitName = npc.traits?.[t] || '???';
+        const backTex = this._cTex(renderTraitTileBack());
+        const frontTex = this._cTex(renderTraitTile(traitName));
+        const tile = this._mkCard(TRAIT_3D_W, TRAIT_3D_H, backTex, frontTex, true); // faceDown=true
+        tile.position.set(traitBaseX, CARD_D + 0.02, localZ);
+        tile.userData = { type: 'npc-trait', npcId: npc.id, traitIndex: t, revealed: false };
+        g.add(tile);
+        this.meshes[`${npc.id}-trait-${t}`] = tile;
       }
 
       // 이름
@@ -409,10 +404,13 @@ export class BoardScene {
     });
   }
 
-  updateNPCCard(npc) {
+  updateNPCCard(npc, revealedTraitIndices) {
     const m = this.meshes[`npc-card-${npc.id}`]; if (!m) return;
-    const t = this._cTex(renderCharacterCard(npc, npc.revealedStats || {}));
+    // 공개된 특성 인덱스 결정: 명시적 전달 > npc._publicTraits > 빈 배열
+    const traitIdx = revealedTraitIndices || npc._publicTraits || [];
+    const t = this._cTex(renderCharacterCard(npc, npc.revealedStats || {}, false, traitIdx));
     m.material[2] = new THREE.MeshStandardMaterial({ map: t, roughness: 0.35 });
+    m.material[3] = new THREE.MeshStandardMaterial({ map: t, roughness: 0.35 });
   }
   revealNPCPrefCard(npcId, ci, data) {
     const m = this.meshes[`${npcId}-pref-${ci}`]; if (!m) return;
@@ -422,50 +420,67 @@ export class BoardScene {
     this._flipCard(m);
   }
 
-  /** 특성 공개 — 캐릭터 카드 텍스처 재렌더 (해당 특성 슬롯이 공개됨) */
+  /** 특성 공개 — 캐릭터 카드 텍스처 재렌더 + 특성 타일 뒤집기 */
   revealNPCTrait(npcId, traitIndex, npc, revealedTraitIndices) {
+    // 캐릭터 시트 텍스처 업데이트
     const m = this.meshes[`npc-card-${npcId}`]; if (!m) return;
     const t = this._cTex(renderCharacterCard(npc, npc.revealedStats || {}, false, revealedTraitIndices));
     m.material[2] = new THREE.MeshStandardMaterial({ map: t, roughness: 0.35 });
     m.material[3] = new THREE.MeshStandardMaterial({ map: t, roughness: 0.35 });
+
+    // 특성 타일 기물 뒤집기
+    const tileMesh = this.meshes[`${npcId}-trait-${traitIndex}`];
+    if (tileMesh && !tileMesh.userData.revealed) {
+      tileMesh.userData.revealed = true;
+      this._flipCard(tileMesh);
+    }
   }
 
-  // ── 3D 선택 모드 ──
-  /** 특성 선택모드: 카드 텍스처에 하이라이트 + 투명 오버레이로 클릭 감지 */
+  /** 특성 선택모드: 미공개 특성 타일 하이라이트 + 클릭 감지 */
   enterTraitSelectionMode(npcId, revealedTraits, callback) {
     this.exitSelectionMode();
     this._selectionMode = 'trait';
     this._selectionCallback = callback;
     this._selectionNpcId = npcId;
     this._selectableObjects = [];
+    this._glowingTiles = [];
 
-    // 선택 가능한 슬롯 인덱스
-    const highlightedIndices = [];
+    // 미공개 타일만 선택 가능 + 글로우 효과
     for (let t = 0; t < 5; t++) {
-      if (!revealedTraits.includes(t)) highlightedIndices.push(t);
+      const m = this.meshes[`${npcId}-trait-${t}`];
+      if (!m) continue;
+      if (revealedTraits.includes(t) || m.userData.revealed) {
+        // 이미 공개: 선택 불가
+        continue;
+      }
+      // 선택 가능 타일: 글로우 + 살짝 위로
+      this._selectableObjects.push(m);
+      m.position.y += 0.04;
+      // 글로우 링 추가
+      const glow = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.06, 0.27),
+        new THREE.MeshBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+      );
+      glow.rotation.x = -Math.PI / 2;
+      glow.position.copy(m.position);
+      glow.position.y = m.position.y - 0.01;
+      glow.name = `trait-glow-${t}`;
+      m.parent.add(glow);
+      this._glowingTiles.push(glow);
     }
 
-    // 카드 텍스처를 하이라이트 버전으로 재렌더
+    // 캐릭터 시트도 하이라이트 버전으로 (선택 가능한 슬롯 강조)
     const npc = this._findNPCById(npcId);
     if (npc) {
+      const highlightedIndices = [];
+      for (let t = 0; t < 5; t++) {
+        if (!revealedTraits.includes(t)) highlightedIndices.push(t);
+      }
       const cardMesh = this.meshes[`npc-card-${npcId}`];
       if (cardMesh) {
         const hlTex = this._cTex(renderCharacterCard(npc, npc.revealedStats || {}, false, revealedTraits, highlightedIndices));
         cardMesh.material[2] = new THREE.MeshStandardMaterial({ map: hlTex, roughness: 0.35 });
         cardMesh.material[3] = new THREE.MeshStandardMaterial({ map: hlTex, roughness: 0.35 });
-      }
-    }
-
-    // 투명 오버레이는 히트영역으로만 사용 (보이지 않음)
-    for (let t = 0; t < 5; t++) {
-      const m = this.meshes[`${npcId}-trait-${t}`];
-      if (!m) continue;
-      if (revealedTraits.includes(t)) {
-        // 이미 오픈된 특성: 레이캐스트 완전 제외
-        m.visible = false;
-      } else {
-        m.visible = true;
-        this._selectableObjects.push(m);
       }
     }
   }
@@ -491,13 +506,14 @@ export class BoardScene {
 
   /** 선택모드 종료 */
   exitSelectionMode() {
-    // 카드 텍스처 원래대로 (하이라이트 없는 버전)
     if (this._selectionNpcId) {
       const npc = this._findNPCById(this._selectionNpcId);
       if (npc) {
+        // 카드 텍스처 원래대로 (공개된 특성 포함)
         const cardMesh = this.meshes[`npc-card-${this._selectionNpcId}`];
         if (cardMesh) {
-          const normalTex = this._cTex(renderCharacterCard(npc, npc.revealedStats || {}));
+          const traitIdx = npc._publicTraits || [];
+          const normalTex = this._cTex(renderCharacterCard(npc, npc.revealedStats || {}, false, traitIdx));
           cardMesh.material[2] = new THREE.MeshStandardMaterial({ map: normalTex, roughness: 0.35 });
           cardMesh.material[3] = new THREE.MeshStandardMaterial({ map: normalTex, roughness: 0.35 });
         }
@@ -511,10 +527,17 @@ export class BoardScene {
           m.material[0] = new THREE.MeshStandardMaterial({ color: 0xddd, roughness: 0.5 });
         }
       }
-      // 특성 오버레이 visible 복구
+      // 특성 타일 위치 복원
       for (let t = 0; t < 5; t++) {
-        const ov = this.meshes[`${this._selectionNpcId}-trait-${t}`];
-        if (ov) ov.visible = true;
+        const tile = this.meshes[`${this._selectionNpcId}-trait-${t}`];
+        if (tile && !tile.userData.revealed && this._selectableObjects.includes(tile)) {
+          tile.position.y -= 0.04; // enterTraitSelectionMode에서 올린 만큼 복원
+        }
+      }
+      // 글로우 이펙트 제거
+      if (this._glowingTiles) {
+        this._glowingTiles.forEach(g => { if (g.parent) g.parent.remove(g); });
+        this._glowingTiles = [];
       }
     }
     if (this._hoveredSelectable) {

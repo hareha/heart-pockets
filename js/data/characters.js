@@ -1,7 +1,7 @@
 /**
  * 캐릭터 카드 데이터 — 남4 여4 총 8장
- * 메인스탯은 게임 시작 시 플레이어가 4포인트를 배분
- * NPC는 올랜덤
+ * 메인스탯은 게임 시작 시 플레이어가 10포인트를 배분 (★1~5)
+ * NPC는 올랜덤 (★1~5)
  */
 
 export const CHARACTER_CARDS = {
@@ -30,28 +30,37 @@ export const STATS = {
 };
 
 export const STAT_KEYS = ['looks', 'wealth', 'personality', 'age'];
-export const TOTAL_STAT_POINTS = 4;
+export const TOTAL_STAT_POINTS = 10;
+export const STAT_MIN = 1;
+export const STAT_MAX = 5;
 
 /**
- * 스탯값 → 표시 텍스트
+ * 스탯값 → 표시 텍스트 (★1~5)
  */
 export function statValueLabel(key, value) {
   const map = {
-    looks:       { 0: '못생김', 1: '평균', 2: '잘생김/예쁨' },
-    wealth:      { 0: '없음', 1: '직장인', 2: '부자' },
-    personality: { 0: '나쁨', 1: '보통', 2: '좋음' },
-    age:         { 0: '40대+', 1: '30대', 2: '20대' },
+    looks:       { 1: '매우 못생김', 2: '못생김', 3: '보통', 4: '잘생김', 5: '최상' },
+    wealth:      { 1: '무직', 2: '알바', 3: '직장인', 4: '고소득', 5: '재벌' },
+    personality: { 1: '최악', 2: '까칠', 3: '보통', 4: '좋음', 5: '천사' },
+    age:         { 1: '50대', 2: '40대', 3: '30대', 4: '20후반', 5: '20초반' },
   };
-  return map[key]?.[value] ?? `${value}`;
+  return map[key]?.[value] ?? `★${value}`;
 }
 
 /**
- * NPC용 랜덤 스탯 생성 (올랜덤, 0~2 각각 독립)
+ * 스탯값 → ★ 문자열
+ */
+export function statStars(value) {
+  return '★'.repeat(value) + '☆'.repeat(STAT_MAX - value);
+}
+
+/**
+ * NPC용 랜덤 스탯 생성 (★1~5 각각 독립)
  */
 export function generateRandomNPCStats() {
   const result = {};
   STAT_KEYS.forEach(k => {
-    result[k] = Math.floor(Math.random() * 3); // 0, 1, 2
+    result[k] = Math.floor(Math.random() * STAT_MAX) + STAT_MIN; // 1~5
   });
   return result;
 }

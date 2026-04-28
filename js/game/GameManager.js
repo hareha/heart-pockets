@@ -1,39 +1,35 @@
 import { CHARACTER_CARDS, STAT_KEYS, TOTAL_STAT_POINTS, generateRandomNPCStats } from '../data/characters.js';
 import { pickRandomTraits } from '../data/traits.js';
 import { PREFERENCE_CARDS, MISSION_CARDS, pickRandomCards, calculateCompatibility } from '../data/cards.js';
+import { ROUND_EVENTS, LOCATION_CARDS, DATE_EVENTS, drawCard } from '../data/events.js';
 
 /**
- * 라운드 정의 — 토큰 제한 포함
+ * 라운드 정의
  */
 const ROUNDS = [
-  { number: 1, name: '첫만남', emoji: '💫', matchType: 'random', tokenLimit: 2,
-    revealStat: 'looks', revealNPCCard: false, appealOnly: false, hasRumor: false,
-    intro: '첫 만남의 시간입니다! 공략 대상의 외모가 공개됩니다.\n랜덤으로 매칭되어 데이트를 진행합니다.',
+  { number: 1, name: '첫인상', emoji: '💫', matchType: 'reveal_phase',
+    revealStat: 'looks', revealNPCCard: false, infoShared: true,
+    intro: '첫인상 시간! 외모 스탯이 공개됩니다.\n돌아가면서 NPC의 특성을 하나씩 전체 공개합니다.',
     revealDesc: '💎 외모 스탯이 공개됩니다!',
   },
-  { number: 2, name: '자기소개', emoji: '🗣️', matchType: 'open', tokenLimit: 2,
-    revealStat: 'age', revealNPCCard: false, appealOnly: false, hasRumor: false,
+  { number: 2, name: '자기소개', emoji: '🗣️', matchType: 'open',
+    revealStat: 'age', revealNPCCard: false, infoShared: true,
     intro: '자기소개 시간! 나이가 공개됩니다.\n순서대로 원하는 상대를 선택합니다.',
     revealDesc: '🎂 나이 스탯이 공개됩니다!',
   },
-  { number: 3, name: '그룹 데이트', emoji: '👥', matchType: 'group', tokenLimit: 2,
-    revealStat: 'personality', revealNPCCard: true, appealOnly: false, hasRumor: false,
+  { number: 3, name: '그룹 데이트', emoji: '👥', matchType: 'group',
+    revealStat: 'personality', revealNPCCard: true, infoShared: true,
     intro: '그룹 데이트! 성격이 공개되고 NPC 취향카드 1장이 공개됩니다.\n2:2로 나뉘어 데이트합니다.',
     revealDesc: '💖 성격 스탯 + 🃏 취향카드 1장이 공개됩니다!',
   },
-  { number: 4, name: '경쟁 데이트', emoji: '🔥', matchType: 'blind', tokenLimit: 2,
-    revealStat: 'wealth', revealNPCCard: false, appealOnly: false, hasRumor: false,
+  { number: 4, name: '경쟁 데이트', emoji: '🔥', matchType: 'blind',
+    revealStat: 'wealth', revealNPCCard: false, infoShared: false,
     intro: '경쟁 데이트! 재력이 공개되어 모든 메인스탯이 오픈!\n블라인드픽으로 경쟁합니다. 겹치면 주사위 대결!',
     revealDesc: '💰 재력 스탯이 공개됩니다! (메인스탯 전부 오픈!)',
   },
-  { number: 5, name: '폭풍전야', emoji: '🌪️', matchType: 'blind', tokenLimit: 3,
-    revealStat: null, revealNPCCard: false, appealOnly: false, hasRumor: true,
-    intro: '폭풍전야! 이번 라운드는 토큰 3개까지 사용 가능!\n블라인드픽 + 소문 타임으로 마지막 정보전.',
-    revealDesc: null,
-  },
-  { number: 6, name: '고백의 밤', emoji: '💕', matchType: 'free', tokenLimit: 99,
-    revealStat: null, revealNPCCard: false, appealOnly: true, hasRumor: false,
-    intro: '고백의 밤! 탐색은 불가능합니다.\n남은 토큰을 모두 어필에 투자하세요!',
+  { number: 5, name: '폭풍전야', emoji: '🌪️', matchType: 'blind',
+    revealStat: null, revealNPCCard: false, infoShared: false,
+    intro: '폭풍전야! 마지막 정보전!\n블라인드픽으로 경쟁합니다.',
     revealDesc: null,
   },
 ];
@@ -42,16 +38,17 @@ export const GameState = {
   LOBBY: 'lobby',
   SETUP: 'setup',
   ROUND_INTRO: 'round_intro',
+  ROUND_EVENT: 'round_event',
   ROUND_REVEAL: 'round_reveal',
+  TRAIT_REVEAL: 'trait_reveal',
   MATCHING: 'matching',
   DATING: 'dating',
-  RUMOR: 'rumor',
   ROUND_END: 'round_end',
   FINAL_SELECTION: 'final_selection',
   RESULTS: 'results',
 };
 
-export const TOTAL_TOKENS = 13; // 행동 토큰 총량
+
 
 export class GameManager {
   constructor() {
@@ -67,6 +64,12 @@ export class GameManager {
     this.dateHistory = [];
     this.matches = {};
     this._listeners = {};
+    // 이벤트/장소 시스템
+    this.currentRoundEvent = null;
+    this.currentLocationCard = null;
+    this.usedEventIds = [];
+    this.usedLocationIds = [];
+    this._dateEvents = DATE_EVENTS;
   }
 
   on(event, cb) { if (!this._listeners[event]) this._listeners[event] = []; this._listeners[event].push(cb); }
@@ -90,18 +93,14 @@ export class GameManager {
         mainStats: config.stats,
         traits: config.traits,
         preferenceCards: config.preferenceCards,
-        // 토큰 시스템
-        tokens: TOTAL_TOKENS, // 행동 토큰 (비공개)
-        tokensUsedThisRound: 0,
-        appealTokens: {}, // npcId -> count (비공개)
+        // 정보
         revealedInfo: {},
         currentDateNpcId: null,
+        // 트래킹
         blindPickWins: 0,
         lonelySuppersCount: 0,
         hiddenCardsRevealed: 0,
         personalMissions: [],
-        changedTargetAfterR5: false,
-        lastAppealTarget: null,
       };
     });
 
@@ -116,7 +115,7 @@ export class GameManager {
       traits: pickRandomTraits(5),
       preferenceCards: pickRandomCards(PREFERENCE_CARDS, 3),
       publicCardIndex: -1,
-      revealedStats: {}, // 공개된 스탯만
+      revealedStats: {},
     }));
     this.npcs.forEach(n => { n.mainStats = n.stats; });
 
@@ -125,6 +124,8 @@ export class GameManager {
     this.currentPlayerIndex = 0;
     this.dateHistory = [];
     this.matches = {};
+    this.usedEventIds = [];
+    this.usedLocationIds = [];
 
     this.emit('gameReady', { players: this.players, npcs: this.npcs });
   }
@@ -138,15 +139,46 @@ export class GameManager {
     const round = this.getCurrentRound();
     if (!round) { this.setState(GameState.FINAL_SELECTION); return; }
 
-    // 플레이어 라운드 토큰 사용량 초기화
+    // 라운드 초기화
     this.players.forEach(p => {
-      p.tokensUsedThisRound = 0;
       p.currentDateNpcId = null;
     });
 
+    // 라운드 이벤트 뽑기
+    this.currentRoundEvent = drawCard(ROUND_EVENTS, this.usedEventIds);
+    this.usedEventIds.push(this.currentRoundEvent.id);
+    this._applyRoundEvent(this.currentRoundEvent);
+
+
     this.matches[round.number] = {};
+    this.currentLocationCard = null;
     this.setState(GameState.ROUND_INTRO);
-    this.emit('roundIntro', { round });
+    this.emit('roundIntro', { round, event: this.currentRoundEvent });
+  }
+
+  /** 라운드 이벤트 효과 적용 */
+  _applyRoundEvent(event) {
+    this._eventConversionRate = 1;
+    this._eventInvestigationPrivate = false;
+    const e = event.effect;
+    switch (e.type) {
+      case 'conversion_bonus':
+        this._eventConversionRate = e.value;
+        break;
+      case 'investigation_private':
+        this._eventInvestigationPrivate = true;
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** 장소 카드 뽑기 (데이트 시작 시) */
+  drawLocationCard() {
+    this.currentLocationCard = drawCard(LOCATION_CARDS, this.usedLocationIds);
+    this.usedLocationIds.push(this.currentLocationCard.id);
+    this.emit('locationDrawn', { location: this.currentLocationCard });
+    return this.currentLocationCard;
   }
 
   /** 스탯 공개 (라운드 reveal phase) */
@@ -180,26 +212,17 @@ export class GameManager {
     }
   }
 
-  // ===== DATING / TOKENS =====
+  // ===== INVESTIGATE ACTIONS =====
 
-  /** 이번 라운드에 남은 토큰 사용 가능량 */
-  getRemainingRoundTokens(playerId) {
-    const player = this.players.find(p => p.id === playerId);
-    const round = this.getCurrentRound();
-    if (!player || !round) return 0;
-    const roundLimit = round.tokenLimit;
-    const used = player.tokensUsedThisRound;
-    const remaining = player.tokens;
-    return Math.min(roundLimit - used, remaining);
-  }
-
-  /** 탐색 (공개 소비 — 공동 은행으로) */
+  /** 탐색 */
   investigate(playerId, npcId, infoType, targetIndex = -1) {
     const player = this.players.find(p => p.id === playerId);
     const npc = this.npcs.find(n => n.id === npcId);
     if (!player || !npc) return null;
-    if (this.getRemainingRoundTokens(playerId) <= 0) return null;
-    if (this.getCurrentRound().appealOnly) return null;
+
+    // 장소 효과: 탐색 불가
+    const loc = this.currentLocationCard;
+    // 장소 효과: 탐색 불가 체크 (추후 장소 카드 시스템 구현 시 활용)
 
     if (!player.revealedInfo[npcId]) {
       player.revealedInfo[npcId] = { traits: [], cards: [] };
@@ -243,39 +266,60 @@ export class GameManager {
     }
 
     if (revealed) {
-      player.tokens--;
-      player.tokensUsedThisRound++;
-      this.emit('tokenSpent', { playerId, type: 'investigate' });
-      this.emit('investigated', { playerId, npcId, revealed });
+      // R1~R3 정보 공유 (이벤트로 비공개 강제 가능)
+      const round = this.getCurrentRound();
+      const shared = round.infoShared && !this._eventInvestigationPrivate;
+      if (shared) {
+        this.players.forEach(other => {
+          if (other.id === playerId) return;
+          if (!other.revealedInfo[npcId]) other.revealedInfo[npcId] = { traits: [], cards: [] };
+          if (revealed.type === 'trait' && !other.revealedInfo[npcId].traits.includes(revealed.value)) {
+            other.revealedInfo[npcId].traits.push(revealed.value);
+          }
+          if (revealed.type === 'card' && !other.revealedInfo[npcId].cards.includes(revealed.value.id)) {
+            other.revealedInfo[npcId].cards.push(revealed.value.id);
+          }
+        });
+      }
+      this.emit('investigated', { playerId, npcId, revealed, shared });
     }
-
     return revealed;
   }
 
-  /** 어필 투자 (비밀 — 어필 상자로) */
-  appeal(playerId, npcId, count = 1) {
+  /** 데이트 중 이벤트 카드 뽑기 */
+  drawDateEvent(playerId, npcId) {
     const player = this.players.find(p => p.id === playerId);
-    if (!player) return false;
+    const npc = this.npcs.find(n => n.id === npcId);
+    if (!player || !npc) return null;
+    const event = this._dateEvents[Math.floor(Math.random() * this._dateEvents.length)];
+    this.emit('dateEvent', { playerId, npcId, event });
+    return event;
+  }
 
-    const available = this.getRemainingRoundTokens(playerId);
-    const actual = Math.min(count, available);
-    if (actual <= 0) return false;
-
-    if (!player.appealTokens[npcId]) player.appealTokens[npcId] = 0;
-    player.appealTokens[npcId] += actual;
-    player.tokens -= actual;
-    player.tokensUsedThisRound += actual;
-
-    if (this.currentRound >= 4) {
-      if (player.lastAppealTarget && player.lastAppealTarget !== npcId) {
-        player.changedTargetAfterR5 = true;
+  /** R1 특성 전체공개 (전원 영구 공유) */
+  revealTraitPublic(playerId, npcId, traitIndex) {
+    const npc = this.npcs.find(n => n.id === npcId);
+    if (!npc || traitIndex < 0 || traitIndex >= npc.traits.length) return null;
+    const trait = npc.traits[traitIndex];
+    if (!npc._publicTraits) npc._publicTraits = [];
+    if (npc._publicTraits.includes(traitIndex)) return null;
+    npc._publicTraits.push(traitIndex);
+    this.players.forEach(p => {
+      if (!p.revealedInfo[npcId]) p.revealedInfo[npcId] = { traits: [], cards: [] };
+      if (!p.revealedInfo[npcId].traits.includes(trait)) {
+        p.revealedInfo[npcId].traits.push(trait);
       }
-    }
-    player.lastAppealTarget = npcId;
+    });
+    this.emit('traitRevealed', { playerId, npcId, trait, traitIndex });
+    return { type: 'trait', value: trait, index: traitIndex };
+  }
 
-    this.emit('tokenSpent', { playerId, type: 'appeal', count: actual });
-    this.emit('appealed', { playerId, npcId });
-    return true;
+  /** R1 특성공개 라운드에서 아직 공개 안 된 특성 있는지 */
+  getUnrevealedPublicTraits(npcId) {
+    const npc = this.npcs.find(n => n.id === npcId);
+    if (!npc) return [];
+    const revealed = npc._publicTraits || [];
+    return npc.traits.map((t, i) => revealed.includes(i) ? null : { trait: t, index: i }).filter(Boolean);
   }
 
   // ===== ROUND TRANSITION =====
@@ -412,7 +456,9 @@ export class GameManager {
   performFinalSelection(selections) {
     const results = [];
     const npcChoices = {};
+    const rivalries = {}; // 경합 정보
 
+    // ── STEP 1: NPC별 후보 평가 & 선택 ──
     this.npcs.forEach(npc => {
       const suitors = Object.entries(selections)
         .filter(([_, nid]) => nid === npc.id)
@@ -421,23 +467,50 @@ export class GameManager {
 
       if (suitors.length === 0) { npcChoices[npc.id] = null; return; }
 
-      const scores = suitors.map(player => {
+      const npcCutline = npc.preferenceCards.reduce((sum, c) => sum + (c.cutline || 5), 0);
+      const scored = suitors.map(player => {
         const compat = calculateCompatibility(npc.preferenceCards, player);
-        const appeal = player.appealTokens[npc.id] || 0;
-        return { player, compatibility: compat, appealCount: appeal, totalScore: compat + appeal * 2 };
+        const passesCutline = compat >= npcCutline;
+        const dateCount = this.getDateCount(player.id, npc.id);
+        return { player, compat, passesCutline, npcCutline, dateCount };
       });
-      scores.sort((a, b) => b.totalScore - a.totalScore);
-      npcChoices[npc.id] = scores[0].player.id;
+
+      // 커트라인 통과자만 후보
+      const eligible = scored.filter(s => s.passesCutline);
+
+      if (eligible.length === 0) {
+        // 모두 커트라인 미달 → NPC 거절
+        npcChoices[npc.id] = null;
+        rivalries[npc.id] = { candidates: scored, contested: false, allRejected: true };
+        return;
+      }
+
+      // 궁합 → 동점 시 데이트 횟수
+      eligible.sort((a, b) =>
+        b.compat - a.compat ||
+        b.dateCount - a.dateCount
+      );
+
+      npcChoices[npc.id] = eligible[0].player.id;
+      rivalries[npc.id] = { candidates: scored, contested: eligible.length > 1 };
     });
 
+    // ── STEP 2: 각 플레이어 최종 점수 ──
     this.players.forEach(player => {
       const chosenNpcId = selections[player.id];
       const chosenNpc = this.npcs.find(n => n.id === chosenNpcId);
       const coupleFormed = npcChoices[chosenNpcId] === player.id;
 
+      // 궁합 = NPC 취향카드 3장 합산
       let compatibilityScore = 0;
-      if (chosenNpc) compatibilityScore = calculateCompatibility(player.preferenceCards, chosenNpc);
+      let npcCutline = 15; // 기본값
+      if (chosenNpc) {
+        compatibilityScore = calculateCompatibility(chosenNpc.preferenceCards, player);
+        npcCutline = chosenNpc.preferenceCards.reduce((sum, c) => sum + (c.cutline || 5), 0);
+      }
+      const passesCutline = compatibilityScore >= npcCutline;
 
+      // 미션 보너스
       let missionBonus = 0;
       const allMissions = [...this.publicMissions, ...player.personalMissions];
       const completedMissions = [];
@@ -445,20 +518,30 @@ export class GameManager {
         try { if (m.check(player, chosenNpc)) { missionBonus += m.points; completedMissions.push(m); } } catch (e) {}
       });
 
+      // 경합 정보
+      const rivalry = rivalries[chosenNpcId];
+      const wasContested = rivalry?.contested || false;
+      const npcRejected = !coupleFormed && rivalry?.allRejected;
+
+      // 최종 점수 = 커플 성사 시 궁합, 미성사 시 0
+      const totalScore = (coupleFormed ? compatibilityScore : 0) + missionBonus;
+
       results.push({
         player, chosenNpc,
         npcChosePlayer: npcChoices[chosenNpcId],
         coupleFormed,
         compatibilityScore,
+        passesCutline,
         missionBonus,
         completedMissions,
-        totalScore: (coupleFormed ? compatibilityScore : 0) + missionBonus,
-        appealTokensUsed: player.appealTokens[chosenNpcId] || 0,
+        totalScore,
+        wasContested,
+        npcRejected,
       });
     });
 
     results.sort((a, b) => b.totalScore - a.totalScore);
-    this.emit('gameEnd', { results, npcChoices });
+    this.emit('gameEnd', { results, npcChoices, rivalries });
     this.setState(GameState.RESULTS);
     return results;
   }
@@ -478,7 +561,6 @@ export class GameManager {
       totalTraits: n.traits.length,
       totalHiddenCards: n.preferenceCards.filter((_, i) => i !== n.publicCardIndex).length,
       dateCount: this.getDateCount(pid, nid),
-      appealTokens: p.appealTokens[nid] || 0,
     };
   }
 

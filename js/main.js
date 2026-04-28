@@ -1,6 +1,6 @@
-import { GameManager, GameState, TOTAL_TOKENS } from './game/GameManager.js';
+import { GameManager, GameState } from './game/GameManager.js';
 import { BoardScene } from './board/BoardScene.js';
-import { CHARACTER_CARDS, STATS, STAT_KEYS, TOTAL_STAT_POINTS } from './data/characters.js';
+import { CHARACTER_CARDS, STATS, STAT_KEYS, TOTAL_STAT_POINTS, STAT_MIN, STAT_MAX, statValueLabel, statStars } from './data/characters.js';
 import { PREFERENCE_CARDS, pickRandomCards } from './data/cards.js';
 import { pickRandomTraits } from './data/traits.js';
 
@@ -54,14 +54,14 @@ function setupToggle(btnA, btnB, cb) {
 setupToggle('btn-mode-solo', 'btn-mode-multi', v => { selectedMode = v ? 'solo' : 'multi'; });
 setupToggle('btn-gender-f', 'btn-gender-m', v => { selectedGender = v ? 'female' : 'male'; });
 
-// 솔로 모드용 랜덤 스탯 배분 (4포인트를 4스탯에 분배)
+// 솔로 모드용 랜덤 스탯 배분 (10포인트를 4스탯에 분배, 각 ★1~5)
 function randomAllocateStats() {
-  const stats = { looks: 0, wealth: 0, personality: 0, age: 0 };
+  const stats = { looks: STAT_MIN, wealth: STAT_MIN, personality: STAT_MIN, age: STAT_MIN };
   const keys = Object.keys(stats);
-  let remaining = TOTAL_STAT_POINTS;
+  let remaining = TOTAL_STAT_POINTS - keys.length * STAT_MIN; // 10 - 4 = 6
   while (remaining > 0) {
     const k = keys[Math.floor(Math.random() * keys.length)];
-    if (stats[k] < 2) { stats[k]++; remaining--; }
+    if (stats[k] < STAT_MAX) { stats[k]++; remaining--; }
   }
   return stats;
 }
@@ -93,7 +93,7 @@ function showStatAllocation(idx) {
   setupIndex = idx;
   const pg = selectedGender === 'female' ? 'male' : 'female';
   const card = CHARACTER_CARDS[pg].find(c => c.id === assignedCardIds[idx]);
-  currentSetupStats = { looks: 0, wealth: 0, personality: 0, age: 0 };
+  currentSetupStats = { looks: STAT_MIN, wealth: STAT_MIN, personality: STAT_MIN, age: STAT_MIN };
   currentSetupTraits = pickRandomTraits(5);
   currentSetupCards = pickRandomCards(PREFERENCE_CARDS, 3);
 
@@ -114,13 +114,13 @@ function renderStatSliders() {
 
   $('setup-stats').innerHTML = STAT_KEYS.map(key => {
     const info = STATS[key]; const val = currentSetupStats[key];
-    const stars = [0, 1].map(i => `<span style="font-size:1.2rem;color:${i < val ? info.color : '#333'};">★</span>`).join('');
+    const stars = Array.from({length: STAT_MAX}, (_, i) => `<span style="font-size:1.2rem;color:${i < val ? info.color : '#333'};">★</span>`).join('');
     return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
       <span style="width:80px;color:${info.color};font-weight:600;font-size:var(--text-sm);">${info.emoji} ${info.label}</span>
-      <button class="btn btn-secondary stat-btn" data-key="${key}" data-dir="-1" style="width:32px;height:32px;padding:0;font-size:18px;" ${val <= 0 ? 'disabled' : ''}>−</button>
-      <span style="min-width:50px;text-align:center;">${stars}</span>
-      <button class="btn btn-secondary stat-btn" data-key="${key}" data-dir="1" style="width:32px;height:32px;padding:0;font-size:18px;" ${val >= 2 || rem <= 0 ? 'disabled' : ''}>+</button>
-      <span class="text-muted" style="font-size:var(--text-xs);min-width:60px;">${val === 0 ? '없음' : val === 1 ? '보통' : '높음'}</span>
+      <button class="btn btn-secondary stat-btn" data-key="${key}" data-dir="-1" style="width:32px;height:32px;padding:0;font-size:18px;" ${val <= STAT_MIN ? 'disabled' : ''}>−</button>
+      <span style="min-width:80px;text-align:center;">${stars}</span>
+      <button class="btn btn-secondary stat-btn" data-key="${key}" data-dir="1" style="width:32px;height:32px;padding:0;font-size:18px;" ${val >= STAT_MAX || rem <= 0 ? 'disabled' : ''}>+</button>
+      <span class="text-muted" style="font-size:var(--text-xs);min-width:70px;">${statValueLabel(key, val)}</span>
     </div>`;
   }).join('');
 
@@ -128,7 +128,7 @@ function renderStatSliders() {
     b.onclick = () => {
       const k = b.dataset.key, d = parseInt(b.dataset.dir);
       const nv = currentSetupStats[k] + d, ns = spent + d;
-      if (nv >= 0 && nv <= 2 && ns <= TOTAL_STAT_POINTS) { currentSetupStats[k] = nv; renderStatSliders(); }
+      if (nv >= STAT_MIN && nv <= STAT_MAX && ns <= TOTAL_STAT_POINTS) { currentSetupStats[k] = nv; renderStatSliders(); }
     };
   });
 }
@@ -175,7 +175,7 @@ function updateHUD() {
   $('hud-round').textContent = r ? `R${r.number}: ${r.emoji} ${r.name}` : '준비 중';
   $('hud-phase').textContent = r ? r.intro?.split('\n')[0] || '' : '';
   if (p) {
-    $('hud-token-count').textContent = `${p.tokens}/${TOTAL_TOKENS}`;
+    $('hud-token-count').textContent = ``;
     $('hud-player-emoji').textContent = p.portrait;
     $('hud-player-name').textContent = p.playerName;
   }
@@ -203,7 +203,10 @@ gm.on('roundIntro', ({ round }) => {
   if (round.revealDesc) {
     $('btn-next').onclick = () => gm.revealRoundStat();
   } else {
-    $('btn-skip-reveal').onclick = () => { gm.startMatching(); startMatchingUI(); };
+    $('btn-skip-reveal').onclick = () => {
+      if (round.matchType === 'reveal_phase') { showTraitRevealPhase(0); }
+      else { gm.startMatching(); startMatchingUI(); }
+    };
   }
 });
 
@@ -215,13 +218,124 @@ gm.on('roundReveal', ({ round, npcs }) => {
   }
   if (board) board.focusOnCenter();
 
-  renderPanel(
-    `${round.revealDesc}`,
-    '공략 대상의 정보가 새로 공개되었습니다. 3D 보드에서 확인하세요!',
-    `<button class="btn btn-primary btn-lg" style="flex:1;" id="btn-to-match">매칭 단계 →</button>`
-  );
-  $('btn-to-match').onclick = () => { gm.startMatching(); startMatchingUI(); };
+  if (round.matchType === 'reveal_phase') {
+    renderPanel(
+      `${round.revealDesc}`,
+      '공략 대상의 외모가 공개되었습니다. 이제 돌아가며 NPC의 특성을 하나씩 전체 공개합니다!',
+      `<button class="btn btn-primary btn-lg" style="flex:1;" id="btn-to-trait-reveal">💫 특성 공개 시작 →</button>`
+    );
+    $('btn-to-trait-reveal').onclick = () => showTraitRevealPhase(0);
+  } else {
+    renderPanel(
+      `${round.revealDesc}`,
+      '공략 대상의 정보가 새로 공개되었습니다. 3D 보드에서 확인하세요!',
+      `<button class="btn btn-primary btn-lg" style="flex:1;" id="btn-to-match">매칭 단계 →</button>`
+    );
+    $('btn-to-match').onclick = () => { gm.startMatching(); startMatchingUI(); };
+  }
 });
+
+// ===== R1 TRAIT REVEAL PHASE =====
+function showTraitRevealPhase(turnIdx) {
+  const totalTurns = gm.players.length; // 각 플레이어 1회씩
+  if (turnIdx >= totalTurns) {
+    // 전원 공개 완료 → R1 종료
+    renderPanel(
+      `💫 첫인상 라운드 완료!`,
+      `모든 플레이어가 NPC 특성을 하나씩 공개했습니다.<br>이 정보는 게임 끝까지 전체 공유됩니다.`,
+      `<button class="btn btn-primary btn-lg" style="flex:1;" id="btn-r1-end">다음 라운드 →</button>`
+    );
+    $('btn-r1-end').onclick = () => gm.nextRound();
+    return;
+  }
+
+  const p = gm.players[turnIdx];
+  gm.currentPlayerIndex = turnIdx;
+  updateHUD();
+  if (board) {
+    board.highlightPlayer(turnIdx, true);
+    board.focusOnCenter();
+  }
+
+  // 핸드오버 (로컬 멀티에서)
+  if (selectedMode !== 'solo' && turnIdx > 0) {
+    showModal(`<div style="text-align:center;">
+      <div style="font-size:3rem;">🙈</div>
+      <div style="font-weight:700;margin:16px 0;">${p.playerName}에게 넘겨주세요!</div>
+      <button class="btn btn-primary" id="btn-handover">준비</button>
+    </div>`);
+    $('btn-handover').onclick = () => { hideModal(); doTraitRevealTurn(turnIdx); };
+  } else {
+    doTraitRevealTurn(turnIdx);
+  }
+}
+
+function doTraitRevealTurn(turnIdx) {
+  const p = gm.players[turnIdx];
+
+  // NPC 선택 그리드
+  const npcGrid = gm.npcs.map((npc, npcIdx) => {
+    const unrevealed = gm.getUnrevealedPublicTraits(npc.id);
+    const allDone = unrevealed.length === 0;
+    return `<div class="npc-pick-item ${allDone ? 'taken' : ''}" data-id="${npc.id}" data-npc-idx="${npcIdx}" ${allDone ? 'style="opacity:0.3;pointer-events:none;"' : ''}>
+      <div style="font-size:2rem;">${npc.portrait}</div>
+      <div style="font-weight:700;">${npc.name}</div>
+      <div style="font-size:0.7rem;color:#94a3b8;">미공개 특성: ${unrevealed.length}개</div>
+    </div>`;
+  }).join('');
+
+  renderPanel(
+    `💫 ${p.playerName}의 차례 (${turnIdx + 1}/${gm.players.length})`,
+    `NPC를 선택하면 캐릭터 시트에서 <span class="text-gold">? 특성 칩</span>을 직접 클릭해 공개합니다.`,
+    `<div style="width:100%;"><div class="npc-pick-grid">${npcGrid}</div></div>`
+  );
+
+  document.querySelectorAll('.npc-pick-item:not(.taken)').forEach(el => {
+    el.onclick = () => {
+      const npcId = el.dataset.id;
+      const npc = gm.npcs.find(n => n.id === npcId);
+      const npcIdx = parseInt(el.dataset.npcIdx);
+      const unrevealed = gm.getUnrevealedPublicTraits(npcId);
+      if (unrevealed.length === 0 || !board) return;
+
+      // 이미 공개된 특성 인덱스
+      const revealedIndices = npc._publicTraits || [];
+
+      // 카메라를 NPC 쪽으로 포커스
+      board.focusOnNPCCard(npcId);
+
+      // 하단 패널: 안내 + 돌아가기
+      renderPanel(
+        `💫 ${npc.portrait} ${npc.name}의 특성을 공개하세요`,
+        `캐릭터 시트 우측의 <span class="text-gold">? 칩</span>을 클릭하면 전체 공개됩니다.`,
+        `<button class="date-action-btn" id="btn-back"><span class="action-icon">←</span>NPC 다시 선택</button>`
+      );
+
+      // 3D 특성 선택 모드 진입
+      board.enterTraitSelectionMode(npcId, revealedIndices, (data) => {
+        const traitIdx = data.traitIndex;
+        const result = gm.revealTraitPublic(p.id, npcId, traitIdx);
+        if (result) {
+          board.exitSelectionMode();
+          const allPublic = npc._publicTraits || [];
+          board.revealNPCTrait(npcId, traitIdx, npc, allPublic);
+          board.updateNPCCard(npc);
+          showToast(`💫 ${p.playerName} → ${npc.name}: "${result.value}" 공개!`);
+
+          if (board) board.highlightPlayer(turnIdx, false);
+          setTimeout(() => showTraitRevealPhase(turnIdx + 1), 1200);
+        }
+      });
+
+      const backEl = $('btn-back');
+      if (backEl) backEl.onclick = () => {
+        board.exitSelectionMode();
+        board.focusOnCenter();
+        doTraitRevealTurn(turnIdx);
+      };
+    };
+  });
+}
 
 // ===== MATCHING =====
 function startMatchingUI() {
@@ -378,6 +492,7 @@ function startDatingPhase(idx) {
   gm.currentPlayerIndex = idx;
   if (!p.currentDateNpcId) { startDatingPhase(idx + 1); return; }
 
+
   if (selectedMode !== 'solo' && idx > 0) {
     showModal(`<div style="text-align:center;"><div style="font-size:3rem;">🙈</div><div style="font-weight:700;margin:16px 0;">${p.playerName}의 데이트 차례!</div><button class="btn btn-primary" id="btn-dh">준비</button></div>`);
     $('btn-dh').onclick = () => { hideModal(); showDating(idx); };
@@ -414,28 +529,35 @@ function showGroupDating(groupIdx) {
     board.focusBetweenPlayers(pi0, pi1);
   }
 
-  const rem0 = gm.getRemainingRoundTokens(players[0].id);
-  const rem1 = gm.getRemainingRoundTokens(players[1].id);
-  const noTokens = rem0 <= 0 && rem1 <= 0;
+
+
 
   renderPanel(
     `👥 ${players[0].playerName} & ${players[1].playerName} — 그룹 데이트`,
-    `${players[0].playerName}: 🪙<span class="text-gold">${rem0}</span> | ${players[1].playerName}: 🪙<span class="text-gold">${rem1}</span>`,
-    `<div style="width:100%;"><div class="date-actions">
-      <button class="date-action-btn" id="btn-trait" ${noTokens ? 'disabled' : ''}><span class="action-icon">🔍</span>특성 탐색<span class="action-cost">🪙 1</span></button>
-      <button class="date-action-btn" id="btn-card" ${noTokens ? 'disabled' : ''}><span class="action-icon">🃏</span>취향카드<span class="action-cost">🪙 1</span></button>
-      <button class="date-action-btn" id="btn-appeal" ${noTokens ? 'disabled' : ''}><span class="action-icon">📢</span>어필<span class="action-cost">🪙 1+</span></button>
+    `행동을 선택하세요.`,
+    `<div style="width:100;"><div class="date-actions">
+      <button class="date-action-btn" id="btn-trait"><span class="action-icon">🔍</span>탐색</button>
+      <button class="date-action-btn" id="btn-event"><span class="action-icon">🎲</span>이벤트</button>
       <button class="date-action-btn" id="btn-pass"><span class="action-icon">⏭️</span>패스</button>
     </div></div>`
   );
 
   const bind = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
 
-  /** 모달 체인: 토큰 사용자 → NPC 선택 → 콜백 */
-  function pickSpenderAndNpc(callback) {
-    const canP0 = gm.getRemainingRoundTokens(players[0].id) > 0;
-    const canP1 = gm.getRemainingRoundTokens(players[1].id) > 0;
+  /** 행동 완료 → 보드 정리 → 다음 그룹 */
+  function endGroupAction() {
+    if (board) {
+      board.exitSelectionMode();
+      board.highlightPlayer(pi0, false);
+      board.highlightPlayer(pi1, false);
+      board._clearGroupIndicators();
+      npcs.forEach(npc => { board.returnNPCToCenter(gm.npcs.indexOf(npc)); });
+    }
+    startGroupDatingPhase(groupIdx + 1);
+  }
 
+  /** 모달 체인: 플레이어 → NPC 선택 → 콜백 */
+  function pickSpenderAndNpc(callback) {
     function pickNpc(spender) {
       showModal(`<div style="text-align:center;">
         <div style="font-weight:700;margin-bottom:12px;">어떤 NPC를 선택할까요?</div>
@@ -450,96 +572,98 @@ function showGroupDating(groupIdx) {
       $('btn-mc').onclick = () => { hideModal(); };
     }
 
-    if (canP0 && canP1) {
-      showModal(`<div style="text-align:center;">
-        <div style="font-weight:700;margin-bottom:12px;">누구의 토큰을 사용할까요?</div>
-        <div style="display:flex;gap:10px;justify-content:center;">
-          <button class="btn btn-primary" id="btn-sp0" style="flex:1;padding:12px;">${players[0].portrait} ${players[0].playerName}<br><small>🪙 ${gm.getRemainingRoundTokens(players[0].id)}</small></button>
-          <button class="btn btn-primary" id="btn-sp1" style="flex:1;padding:12px;">${players[1].portrait} ${players[1].playerName}<br><small>🪙 ${gm.getRemainingRoundTokens(players[1].id)}</small></button>
-        </div>
-        <button class="btn" id="btn-mc" style="margin-top:8px;width:100%;opacity:0.7;">취소</button>
-      </div>`);
-      $('btn-sp0').onclick = () => { hideModal(); pickNpc(players[0]); };
-      $('btn-sp1').onclick = () => { hideModal(); pickNpc(players[1]); };
-      $('btn-mc').onclick = () => { hideModal(); };
-    } else if (canP0) { pickNpc(players[0]); }
-    else if (canP1) { pickNpc(players[1]); }
+    showModal(`<div style="text-align:center;">
+      <div style="font-weight:700;margin-bottom:12px;">누가 행동할까요?</div>
+      <div style="display:flex;gap:10px;justify-content:center;">
+        <button class="btn btn-primary" id="btn-sp0" style="flex:1;padding:12px;">${players[0].portrait} ${players[0].playerName}</button>
+        <button class="btn btn-primary" id="btn-sp1" style="flex:1;padding:12px;">${players[1].portrait} ${players[1].playerName}</button>
+      </div>
+      <button class="btn" id="btn-mc" style="margin-top:8px;width:100%;opacity:0.7;">취소</button>
+    </div>`);
+    $('btn-sp0').onclick = () => { hideModal(); pickNpc(players[0]); };
+    $('btn-sp1').onclick = () => { hideModal(); pickNpc(players[1]); };
+    $('btn-mc').onclick = () => { hideModal(); };
   }
 
   bind('btn-trait', () => {
     if (!board) return;
-    pickSpenderAndNpc((spender, npc) => {
-      const info0 = players[0].revealedInfo?.[npc.id] || { traits: [], cards: [] };
-      const info1 = players[1].revealedInfo?.[npc.id] || { traits: [], cards: [] };
-      const allTraits = [...new Set([...info0.traits, ...info1.traits])];
-      const revIdx = npc.traits.map((t, i) => allTraits.includes(t) ? i : -1).filter(i => i >= 0);
-      showToast(`🔍 ${npc.name}의 특성 칩을 클릭하세요`);
-      board.enterTraitSelectionMode(npc.id, revIdx, (data) => {
-        const r = gm.investigate(spender.id, npc.id, 'trait', data.traitIndex);
-        if (r) {
-          const partner = players.find(p => p.id !== spender.id);
-          if (!partner.revealedInfo) partner.revealedInfo = {};
-          if (!partner.revealedInfo[npc.id]) partner.revealedInfo[npc.id] = { traits: [], cards: [] };
-          if (!partner.revealedInfo[npc.id].traits.includes(r.value)) partner.revealedInfo[npc.id].traits.push(r.value);
-          board.exitSelectionMode();
-          const allT = [...new Set([...(players[0].revealedInfo?.[npc.id]?.traits||[]),...(players[1].revealedInfo?.[npc.id]?.traits||[])])];
-          const upIdx = npc.traits.map((t, i) => allT.includes(t) ? i : -1).filter(i => i >= 0);
-          board.revealNPCTrait(npc.id, data.traitIndex, npc, upIdx);
-          board.animateTokenToBank(spender.id);
-          updateHUD();
-          showToast(`🔍 ${r.value} (${spender.playerName})`);
-          setTimeout(() => showGroupDating(groupIdx), 1000);
-        }
+    showModal(`<div style="text-align:center;">
+      <div style="font-weight:700;margin-bottom:12px;">🔍 무엇을 탐색할까요?</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button class="btn btn-primary" id="btn-gtr" style="padding:12px;">🔍 특성 확인 <small>(1개 공개)</small></button>
+        <button class="btn btn-primary" id="btn-gca" style="padding:12px;">🃏 취향카드 확인 <small>(1장 공개)</small></button>
+        <button class="btn" id="btn-mc" style="opacity:0.7;">취소</button>
+      </div>
+    </div>`);
+    $('btn-mc').onclick = () => { hideModal(); };
+
+    $('btn-gtr').onclick = () => {
+      hideModal();
+      pickSpenderAndNpc((spender, npc) => {
+        const info0 = players[0].revealedInfo?.[npc.id] || { traits: [], cards: [] };
+        const info1 = players[1].revealedInfo?.[npc.id] || { traits: [], cards: [] };
+        const allTraits = [...new Set([...info0.traits, ...info1.traits])];
+        const revIdx = npc.traits.map((t, i) => allTraits.includes(t) ? i : -1).filter(i => i >= 0);
+        showToast(`🔍 ${npc.name}의 특성 칩을 클릭하세요`);
+        board.enterTraitSelectionMode(npc.id, revIdx, (data) => {
+          const r = gm.investigate(spender.id, npc.id, 'trait', data.traitIndex);
+          if (r) {
+            board.exitSelectionMode();
+            const allT = [...new Set([...(players[0].revealedInfo?.[npc.id]?.traits||[]),...(players[1].revealedInfo?.[npc.id]?.traits||[])])];
+            const upIdx = npc.traits.map((t, i) => allT.includes(t) ? i : -1).filter(i => i >= 0);
+            board.revealNPCTrait(npc.id, data.traitIndex, npc, upIdx);
+            updateHUD();
+            showToast(`🔍 ${r.value} (${spender.playerName})`);
+            setTimeout(endGroupAction, 1200);
+          }
+        });
       });
-    });
+    };
+
+    $('btn-gca').onclick = () => {
+      hideModal();
+      pickSpenderAndNpc((spender, npc) => {
+        const info0 = players[0].revealedInfo?.[npc.id] || { traits: [], cards: [] };
+        const info1 = players[1].revealedInfo?.[npc.id] || { traits: [], cards: [] };
+        const allC = [...new Set([...info0.cards, ...info1.cards])];
+        const revIdx = npc.preferenceCards.map((c, i) => allC.includes(c.id) ? i : -1).filter(i => i >= 0);
+        showToast(`🃏 ${npc.name}의 취향카드를 클릭하세요`);
+        board.enterCardSelectionMode(npc.id, revIdx, (data) => {
+          const r = gm.investigate(spender.id, npc.id, 'card', data.cardIndex);
+          if (r) {
+            board.exitSelectionMode();
+            board.revealNPCPrefCard(npc.id, data.cardIndex, r.value);
+            updateHUD();
+            showToast(`🃏 ${r.value.emoji} ${r.value.name} (${spender.playerName})`);
+            setTimeout(endGroupAction, 1200);
+          }
+        });
+      });
+    };
   });
 
-  bind('btn-card', () => {
-    if (!board) return;
-    pickSpenderAndNpc((spender, npc) => {
-      const info0 = players[0].revealedInfo?.[npc.id] || { traits: [], cards: [] };
-      const info1 = players[1].revealedInfo?.[npc.id] || { traits: [], cards: [] };
-      const allC = [...new Set([...info0.cards, ...info1.cards])];
-      const revIdx = npc.preferenceCards.map((c, i) => allC.includes(c.id) ? i : -1).filter(i => i >= 0);
-      showToast(`🃏 ${npc.name}의 취향카드를 클릭하세요`);
-      board.enterCardSelectionMode(npc.id, revIdx, (data) => {
-        const r = gm.investigate(spender.id, npc.id, 'card', data.cardIndex);
-        if (r) {
-          const partner = players.find(p => p.id !== spender.id);
-          if (!partner.revealedInfo) partner.revealedInfo = {};
-          if (!partner.revealedInfo[npc.id]) partner.revealedInfo[npc.id] = { traits: [], cards: [] };
-          if (!partner.revealedInfo[npc.id].cards.includes(r.value.id)) partner.revealedInfo[npc.id].cards.push(r.value.id);
-          board.exitSelectionMode();
-          board.revealNPCPrefCard(npc.id, data.cardIndex, r.value);
-          board.animateTokenToBank(spender.id);
-          updateHUD();
-          showToast(`🃏 ${r.value.emoji} ${r.value.name} (${spender.playerName})`);
-          setTimeout(() => showGroupDating(groupIdx), 1000);
-        }
-      });
-    });
-  });
+  bind('btn-event', () => {
+    const activePlayer = players[0];
+    const activeNpc = npcs[0];
+    const event = gm.drawDateEvent(activePlayer.id, activeNpc.id);
+    if (!event) { showToast('⚠️ 이벤트 카드를 뽑을 수 없습니다'); return; }
 
-  bind('btn-appeal', () => {
-    pickSpenderAndNpc((spender, npc) => {
-      gm.appeal(spender.id, npc.id, 1);
-      if (board) board.animateTokenToAppealBox(spender.id);
+    showModal(`<div style="text-align:center;">
+      <div style="font-size:3rem;margin-bottom:8px;">${event.emoji}</div>
+      <div style="font-weight:700;font-size:1.1rem;margin-bottom:8px;">${event.name}</div>
+      <div style="font-size:0.9rem;color:#94a3b8;margin-bottom:16px;">${event.description}</div>
+      <button class="btn btn-primary" id="btn-event-ok" style="width:100%;">확인</button>
+    </div>`);
+
+    $('btn-event-ok').onclick = () => {
+      hideModal();
+      showToast(`${event.emoji} ${event.name}`);
       updateHUD();
-      showToast(`📢 ${spender.playerName} → ${npc.name} 어필`);
-      setTimeout(() => showGroupDating(groupIdx), 800);
-    });
+      setTimeout(endGroupAction, 1200);
+    };
   });
 
-  bind('btn-pass', () => {
-    if (board) {
-      board.exitSelectionMode();
-      board.highlightPlayer(pi0, false);
-      board.highlightPlayer(pi1, false);
-      board._clearGroupIndicators();
-      npcs.forEach(npc => { board.returnNPCToCenter(gm.npcs.indexOf(npc)); });
-    }
-    startGroupDatingPhase(groupIdx + 1);
-  });
+  bind('btn-pass', endGroupAction);
 }
 
 function showDating(idx) {
@@ -556,106 +680,177 @@ function showDating(idx) {
     board.focusOnPlayer(idx);
   }
 
-  const remTokens = gm.getRemainingRoundTokens(p.id);
-  const hasMore = gm.hasUnrevealedInfo(p.id, npc.id);
+  const bind = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
 
-  let actionsHtml = '';
-  if (round.appealOnly) {
-    actionsHtml = `
-      <button class="date-action-btn" id="btn-appeal" ${remTokens <= 0 ? 'disabled' : ''}>
-        <span class="action-icon">📢</span>어필 투자<span class="action-cost">🪙 1+</span>
-      </button>
-      <button class="date-action-btn" id="btn-pass"><span class="action-icon">⏭️</span>패스</button>`;
-  } else {
-    actionsHtml = `
-      <button class="date-action-btn" id="btn-trait" ${remTokens <= 0 || !hasMore ? 'disabled' : ''}>
-        <span class="action-icon">🔍</span>특성 탐색<span class="action-cost">🪙 1</span>
-      </button>
-      <button class="date-action-btn" id="btn-card" ${remTokens <= 0 || !hasMore ? 'disabled' : ''}>
-        <span class="action-icon">🃏</span>취향카드<span class="action-cost">🪙 1</span>
-      </button>
-      <button class="date-action-btn" id="btn-appeal" ${remTokens <= 0 ? 'disabled' : ''}>
-        <span class="action-icon">📢</span>어필<span class="action-cost">🪙 1+</span>
-      </button>
-      <button class="date-action-btn" id="btn-pass"><span class="action-icon">⏭️</span>패스</button>`;
+  /** 행동 완료 → 보드 정리 → 다음 플레이어 */
+  function endDateAction() {
+    if (board) { board.exitSelectionMode(); board.highlightPlayer(idx, false); board.returnNPCToCenter(npcIdx); }
+    startDatingPhase(idx + 1);
   }
+
+  // 탐색 또는 이벤트 택1 (1회만)
+  const actionsHtml = `
+    <button class="date-action-btn" id="btn-investigate"><span class="action-icon">🔍</span>탐색</button>
+    <button class="date-action-btn" id="btn-event"><span class="action-icon">🎲</span>이벤트</button>
+    <button class="date-action-btn" id="btn-pass"><span class="action-icon">⏭️</span>패스</button>`;
 
   renderPanel(
     `${p.playerName} ✦ ${npc.name}와(과) 데이트 중`,
-    `남은 토큰: <span class="text-gold">${remTokens}</span>개 (보유: ${p.tokens}개) | 이번 라운드 제한: ${round.tokenLimit}개`,
+    `행동을 하나 선택하세요. (1회만 가능)`,
     `<div style="width:100%;"><div class="date-actions">${actionsHtml}</div></div>`
   );
 
-  const bind = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
-
-  // ── 특성 탐색: 카드 위 특성칩 직접 클릭 ──
-  bind('btn-trait', () => {
-    if (!board) return;
+  bind('btn-investigate', () => {
     const info = p.revealedInfo?.[npc.id] || { traits: [], cards: [] };
-    const revealedIndices = npc.traits.map((t, i) => info.traits.includes(t) ? i : -1).filter(i => i >= 0);
-    
+    const unrevealedTraits = npc.traits.filter(t => !info.traits.includes(t));
+    const revealedCardIds = info.cards || [];
+    const hiddenCards = npc.preferenceCards.filter((c, i) => i !== npc.publicCardIndex && !revealedCardIds.includes(c.id));
+
+    const hasTrait = unrevealedTraits.length > 0;
+    const hasCard = hiddenCards.length > 0;
+
     renderPanel(
-      `🔍 특성 탐색`,
-      `캐릭터 카드 우측의 <span class="text-gold">? 특성 칩</span>을 클릭하세요 (🪙 1개 소비)`,
-      `<button class="date-action-btn" id="btn-back"><span class="action-icon">←</span>돌아가기</button>`
+      `🔍 탐색 — 무엇을 확인할까요?`,
+      ``,
+      `<div style="width:100%;"><div class="date-actions" style="flex-direction:column;gap:6px;">
+        <button class="date-action-btn" id="btn-sub-trait" ${!hasTrait ? 'disabled' : ''} style="width:100%;justify-content:space-between;">
+          <span>🔍 특성 확인 <small style="opacity:0.7;">(1개 공개)</small></span>
+        </button>
+        <button class="date-action-btn" id="btn-sub-card" ${!hasCard ? 'disabled' : ''} style="width:100%;justify-content:space-between;">
+          <span>🃏 취향카드 확인 <small style="opacity:0.7;">(1장 공개)</small></span>
+        </button>
+        <button class="date-action-btn" id="btn-back" style="width:100%;opacity:0.7;"><span class="action-icon">←</span>돌아가기</button>
+      </div></div>`
     );
-    
-    board.enterTraitSelectionMode(npc.id, revealedIndices, (data) => {
-      const r = gm.investigate(p.id, npc.id, 'trait', data.traitIndex);
-      if (r) {
-        board.exitSelectionMode();
-        const updatedInfo = p.revealedInfo?.[npc.id] || { traits: [], cards: [] };
-        const updatedIndices = npc.traits.map((t, i) => updatedInfo.traits.includes(t) ? i : -1).filter(i => i >= 0);
-        board.revealNPCTrait(npc.id, data.traitIndex, npc, updatedIndices);
-        board.animateTokenToBank(p.id);
-        updateHUD();
-        showToast(`🔍 ${r.value}`);
-        setTimeout(() => showDating(idx), 1000);
-      }
+
+    const bindSub = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+    bindSub('btn-sub-trait', () => {
+      if (!board) return;
+      const revealedIndices = npc.traits.map((t, i) => (info.traits || []).includes(t) ? i : -1).filter(i => i >= 0);
+      renderPanel(`🔍 특성 탐색`, `카드 우측의 <span class="text-gold">? 특성 칩</span>을 클릭하세요`,
+        `<button class="date-action-btn" id="btn-back"><span class="action-icon">←</span>돌아가기</button>`);
+      board.enterTraitSelectionMode(npc.id, revealedIndices, (data) => {
+        const r = gm.investigate(p.id, npc.id, 'trait', data.traitIndex);
+        if (r) {
+          board.exitSelectionMode();
+          const updatedInfo = p.revealedInfo?.[npc.id] || { traits: [], cards: [] };
+          const updatedIndices = npc.traits.map((t, i) => updatedInfo.traits.includes(t) ? i : -1).filter(i => i >= 0);
+          board.revealNPCTrait(npc.id, data.traitIndex, npc, updatedIndices);
+          updateHUD();
+          showToast(`🔍 ${r.value}`);
+          setTimeout(endDateAction, 1200);
+        }
+      });
+      $('btn-back').onclick = () => { board.exitSelectionMode(); showDating(idx); };
     });
-    bind('btn-back', () => { board.exitSelectionMode(); showDating(idx); });
-  });
 
-  // ── 취향카드: 3D 카드 직접 클릭 ──
-  bind('btn-card', () => {
-    if (!board) return;
-    const info = p.revealedInfo?.[npc.id] || { traits: [], cards: [] };
-    const revealedIndices = npc.preferenceCards.map((c, i) => info.cards.includes(c.id) ? i : -1).filter(i => i >= 0);
-    
-    renderPanel(
-      `🃏 취향카드 탐색`,
-      `보드 위의 <span class="text-gold">취향카드</span>를 직접 클릭하세요 (🪙 1개 소비)`,
-      `<button class="date-action-btn" id="btn-back"><span class="action-icon">←</span>돌아가기</button>`
-    );
-    
-    board.enterCardSelectionMode(npc.id, revealedIndices, (data) => {
-      const ci = data.cardIndex;
-      const r = gm.investigate(p.id, npc.id, 'card', ci);
-      if (r) {
-        board.exitSelectionMode();
-        board.revealNPCPrefCard(npc.id, ci, r.value);
-        board.animateTokenToBank(p.id);
-        updateHUD();
-        showToast(`🃏 ${r.value.emoji} ${r.value.name}`);
-        setTimeout(() => showDating(idx), 1000);
-      }
+    bindSub('btn-sub-card', () => {
+      if (!board) return;
+      const revealedIndices = npc.preferenceCards.map((c, i) => (info.cards || []).includes(c.id) ? i : -1).filter(i => i >= 0);
+      renderPanel(`🃏 취향카드 탐색`, `보드 위의 <span class="text-gold">취향카드</span>를 클릭하세요`,
+        `<button class="date-action-btn" id="btn-back"><span class="action-icon">←</span>돌아가기</button>`);
+      board.enterCardSelectionMode(npc.id, revealedIndices, (data) => {
+        const r = gm.investigate(p.id, npc.id, 'card', data.cardIndex);
+        if (r) {
+          board.exitSelectionMode();
+          board.revealNPCPrefCard(npc.id, data.cardIndex, r.value);
+          updateHUD();
+          showToast(`🃏 ${r.value.emoji} ${r.value.name}`);
+          setTimeout(endDateAction, 1200);
+        }
+      });
+      $('btn-back').onclick = () => { board.exitSelectionMode(); showDating(idx); };
     });
-    bind('btn-back', () => { board.exitSelectionMode(); showDating(idx); });
+
+    bindSub('btn-back', () => showDating(idx));
   });
 
-  bind('btn-appeal', () => {
-    gm.appeal(p.id, npc.id, 1);
-    if (board) board.animateTokenToAppealBox(p.id);
-    updateHUD();
-    showToast('📢 어필 토큰 투자');
-    setTimeout(() => showDating(idx), 800);
+  bind('btn-event', () => {
+    const event = gm.drawDateEvent(p.id, npc.id);
+    if (!event) { showToast('⚠️ 이벤트 카드를 뽑을 수 없습니다'); return; }
+
+    // 이벤트 카드 결과 모달
+    showModal(`<div style="text-align:center;">
+      <div style="font-size:3rem;margin-bottom:8px;">${event.emoji}</div>
+      <div style="font-weight:700;font-size:1.1rem;margin-bottom:8px;">${event.name}</div>
+      <div style="font-size:0.9rem;color:#94a3b8;margin-bottom:16px;">${event.description}</div>
+      <button class="btn btn-primary" id="btn-event-ok" style="width:100%;">확인</button>
+    </div>`);
+
+    $('btn-event-ok').onclick = () => {
+      hideModal();
+      // 이벤트 효과 적용
+      const eff = event.effect;
+      switch (eff.type) {
+        case 'free_trait_reveal': {
+          const traitInfo = p.revealedInfo?.[npc.id] || { traits: [], cards: [] };
+          const unrevealed = npc.traits.filter(t => !traitInfo.traits.includes(t));
+          if (unrevealed.length > 0) {
+            const r = gm.investigate(p.id, npc.id, 'trait');
+            if (r && board) {
+              const upInfo = p.revealedInfo?.[npc.id] || { traits: [] };
+              const upIdx = npc.traits.map((t, i) => upInfo.traits.includes(t) ? i : -1).filter(i => i >= 0);
+              board.revealNPCTrait(npc.id, r.index, npc, upIdx);
+              showToast(`🌧️ ${r.value} 특성 공개!`);
+            }
+          } else { showToast('이미 모든 특성이 공개됨'); }
+          break;
+        }
+        case 'free_card_reveal': {
+          const cardInfo = p.revealedInfo?.[npc.id] || { traits: [], cards: [] };
+          const hidden = npc.preferenceCards.filter((c, i) => i !== npc.publicCardIndex && !cardInfo.cards.includes(c.id));
+          if (hidden.length > 0) {
+            const r = gm.investigate(p.id, npc.id, 'card');
+            if (r && board) {
+              board.revealNPCPrefCard(npc.id, r.index, r.value);
+              showToast(`🎯 ${r.value.emoji} ${r.value.name} 공개!`);
+            }
+          } else { showToast('이미 모든 취향카드가 공개됨'); }
+          break;
+        }
+        case 'compat_bonus':
+          showToast(`${event.emoji} 궁합 보너스 +${eff.value}!`);
+          break;
+        case 'skip_turn':
+          showToast(`📱 데이트 중단!`);
+          endDateAction();
+          return;
+        case 'private_trait_reveal': {
+          const privInfo = p.revealedInfo?.[npc.id] || { traits: [], cards: [] };
+          const unrevealed = npc.traits.filter(t => !privInfo.traits.includes(t));
+          if (unrevealed.length > 0) {
+            // 비공개로 직접 추가 (정보공유 안 함)
+            if (!p.revealedInfo[npc.id]) p.revealedInfo[npc.id] = { traits: [], cards: [] };
+            p.revealedInfo[npc.id].traits.push(unrevealed[0]);
+            showToast(`🤫 비밀: ${unrevealed[0]} (나만 앎!)`);
+          } else { showToast('이미 모든 특성이 공개됨'); }
+          break;
+        }
+        case 'reveal_cutline_hint': {
+          const cutline = npc.preferenceCards.reduce((s, c) => s + (c.cutline || 5), 0);
+          const hint = cutline <= 12 ? '낮은 편' : cutline <= 15 ? '보통' : '높은 편';
+          showToast(`🔮 ${npc.name}의 커트라인은 ${hint}이다...`);
+          break;
+        }
+        case 'force_share':
+          showToast(`😠 이번 데이트 정보가 전원 공개!`);
+          break;
+        case 'next_double_reveal':
+          showToast(`${event.emoji} 다음 탐색 시 보너스 효과!`);
+          break;
+        default:
+          showToast(`${event.emoji} ${event.description}`);
+          break;
+      }
+      updateHUD();
+      setTimeout(endDateAction, 1200);
+    };
   });
 
-  bind('btn-pass', () => {
-    if (board) { board.exitSelectionMode(); board.highlightPlayer(idx, false); board.returnNPCToCenter(npcIdx); }
-    startDatingPhase(idx + 1);
-  });
+  bind('btn-pass', endDateAction);
 }
+
+
 
 // ===== ROUND END =====
 function endRound() {
@@ -724,18 +919,36 @@ function promptFinalChoice(idx, selections) {
 }
 
 // ===== GAME END =====
-gm.on('gameEnd', ({ results }) => {
-  $('final-results').innerHTML = results.map((r, i) => `
+gm.on('gameEnd', ({ results, rivalries }) => {
+  $('final-results').innerHTML = results.map((r, i) => {
+    const contested = r.wasContested ? '<span style="color:#ef4444;">🔥 경합</span>' : '<span style="color:#22c55e;">독점</span>';
+    let matchStatus;
+    if (r.coupleFormed) {
+      matchStatus = `<span class="text-pink">커플 성사!</span> (${contested})`;
+    } else if (r.npcRejected) {
+      const cl = r.chosenNpc?.preferenceCards.reduce((s, c) => s + (c.cutline || 5), 0) || '?';
+      matchStatus = `<span style="color:#ef4444;">💔 NPC 거절</span> <small style="color:#94a3b8;">(궁합 ${r.compatibilityScore} < 커트라인 ${cl})</small>`;
+    } else if (!r.passesCutline) {
+      const cl = r.chosenNpc?.preferenceCards.reduce((s, c) => s + (c.cutline || 5), 0) || '?';
+      matchStatus = `<span style="color:#f97316;">⚠️ 커트라인 미달</span> <small style="color:#94a3b8;">(궁합 ${r.compatibilityScore} < ${cl})</small>`;
+    } else {
+      matchStatus = `<span class="text-muted">경합 패배</span> (${contested})`;
+    }
+    return `
     <div class="glass-card" style="padding:20px;margin-bottom:12px;${i === 0 && r.coupleFormed ? 'border:2px solid var(--gold-400);box-shadow:0 0 30px rgba(251,191,36,0.3);' : ''}">
       <div style="display:flex;align-items:center;gap:16px;">
         <span style="font-size:2rem;">${r.player.portrait}</span>
         ${r.coupleFormed ? '<span style="font-size:2rem;">✅</span>' : '<span style="font-size:2rem;">❌</span>'}
         <span style="font-size:2rem;">${r.chosenNpc?.portrait || '❓'}</span>
       </div>
-      <div style="font-weight:700;margin-top:8px;">${r.player.playerName} → ${r.chosenNpc?.name || '없음'} ${r.coupleFormed ? '<span class="text-pink">커플 성사!</span>' : '<span class="text-muted">미성사</span>'}</div>
-      <div style="font-size:var(--text-sm);margin-top:4px;">궁합: <span class="text-purple">${r.compatibilityScore}</span> | 어필: <span class="text-pink">${r.appealTokensUsed}</span> | 미션: <span class="text-gold">+${r.missionBonus}</span></div>
-      <div style="font-size:var(--text-xl);font-weight:800;margin-top:4px;">총점: <span class="${r.coupleFormed ? 'text-gold' : 'text-muted'}">${r.totalScore}</span>${i === 0 && r.coupleFormed ? ' 👑' : ''}</div>
-    </div>`).join('');
+      <div style="font-weight:700;margin-top:8px;">${r.player.playerName} → ${r.chosenNpc?.name || '없음'} ${matchStatus}</div>
+      <div style="font-size:var(--text-sm);margin-top:4px;">
+        궁합: <span class="text-purple">${r.compatibilityScore}</span> |
+        미션: <span class="text-gold">+${r.missionBonus}</span>
+      </div>
+      <div style="font-size:var(--text-xl);font-weight:800;margin-top:6px;">총점: <span class="${r.coupleFormed ? 'text-gold' : 'text-muted'}">${r.totalScore}</span>${i === 0 && r.coupleFormed ? ' 👑' : ''}</div>
+    </div>`;
+  }).join('');
   showScreen('final');
 });
 
