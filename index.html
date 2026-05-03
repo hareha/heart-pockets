@@ -17,6 +17,17 @@
     }
   </script>
   <link rel="stylesheet" href="css/style.css">
+  <!-- 모바일 뷰포트 높이 정확히 측정 (CSS 로드 후 즉시 실행) -->
+  <script>
+    (function(){
+      function setH(){
+        document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
+      }
+      setH();
+      window.addEventListener('resize', setH);
+      window.addEventListener('orientationchange', function(){ setTimeout(setH, 150); });
+    })();
+  </script>
 </head>
 <body>
   <div id="app">
@@ -79,28 +90,8 @@
         </div>
       </div>
 
-      <!-- ===== GAME SCREEN ===== -->
-      <div id="screen-game" class="screen">
-        <!-- Top HUD -->
-        <div class="top-hud">
-          <div>
-            <div id="hud-round" class="text-pink" style="font-family:var(--font-display); font-size:var(--text-lg); font-weight:700;">준비 중</div>
-            <div id="hud-phase" class="text-muted" style="font-size:var(--text-xs);">게임 로딩...</div>
-          </div>
-          <div class="flex items-center gap-md">
-            <div id="hud-tokens" class="token-display">🪙 토큰: <span id="hud-token-count">13</span></div>
-            <div id="hud-player" class="flex items-center gap-sm" style="font-size:var(--text-sm);">
-              <span id="hud-player-emoji">🌹</span>
-              <span id="hud-player-name">Player 1</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Bottom Panel (동적으로 채워짐) -->
-        <div class="bottom-panel" id="game-panel">
-          <div id="panel-content"></div>
-        </div>
-      </div>
+      <!-- ===== GAME SCREEN (3D canvas 위 — 빈 컨테이너) ===== -->
+      <div id="screen-game" class="screen"></div>
 
       <!-- ===== FINAL SCREEN ===== -->
       <div id="screen-final" class="screen fullscreen-ui">
@@ -112,12 +103,32 @@
         </div>
       </div>
 
-      <!-- ===== MODAL ===== -->
-      <div id="modal-overlay" style="display:none; position:absolute; inset:0; background:rgba(0,0,0,0.25); z-index:100; align-items:center; justify-content:center; pointer-events:auto;">
-        <div id="modal-content" class="glass-card" style="padding:var(--sp-lg); max-width:420px; width:85%; max-height:60vh; overflow-y:auto; backdrop-filter:blur(12px);"></div>
-      </div>
-
     </div>
+  </div>
+
+  <!-- ===== TOP HUD (fixed, 게임 화면 전용) ===== -->
+  <div class="top-hud" id="game-hud">
+    <div>
+      <div id="hud-round" class="text-pink" style="font-family:var(--font-display); font-size:var(--text-lg); font-weight:700;">준비 중</div>
+      <div id="hud-phase" class="text-muted" style="font-size:var(--text-xs);">게임 로딩...</div>
+    </div>
+    <div class="flex items-center gap-md">
+      <div id="hud-tokens" class="token-display">🪙 토큰: <span id="hud-token-count">13</span></div>
+      <div id="hud-player" class="flex items-center gap-sm" style="font-size:var(--text-sm);">
+        <span id="hud-player-emoji">🌹</span>
+        <span id="hud-player-name">Player 1</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== BOTTOM PANEL (fixed, 게임 화면 전용) ===== -->
+  <div class="bottom-panel" id="game-panel" style="display:none;">
+    <div id="panel-content"></div>
+  </div>
+
+  <!-- ===== MODAL (fixed overlay) ===== -->
+  <div id="modal-overlay" style="display:none;">
+    <div id="modal-content" class="glass-card" style="padding:var(--sp-lg); backdrop-filter:blur(12px);"></div>
   </div>
 
   <script type="module" src="js/main.js"></script>

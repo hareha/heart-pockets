@@ -16,6 +16,16 @@ function showScreen(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const el = document.getElementById(`screen-${name}`);
   if (el) el.classList.add('active');
+  // game 화면일 때만 fixed HUD/Panel 보이기
+  const hud = document.getElementById('game-hud');
+  const panel = document.getElementById('game-panel');
+  if (name === 'game') {
+    if (hud) hud.style.display = 'flex';
+    if (panel) panel.style.display = 'block';
+  } else {
+    if (hud) hud.style.display = 'none';
+    if (panel) panel.style.display = 'none';
+  }
 }
 function $(id) { return document.getElementById(id); }
 function panel() { return $('panel-content'); }

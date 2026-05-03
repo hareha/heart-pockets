@@ -70,6 +70,9 @@
   --duration-fast: 150ms;
   --duration-normal: 300ms;
   --duration-slow: 500ms;
+
+  /* JS가 설정하는 실제 뷰포트 높이 (fallback: 100vh) */
+  --app-height: 100vh;
 }
 
 *,
@@ -89,18 +92,20 @@ body {
   font-family: var(--font-body);
   background: var(--bg-primary);
   color: var(--text-primary);
-  min-height: 100vh;
-  min-height: 100dvh;
+  width: 100%;
+  height: var(--app-height);
   overflow: hidden;
-  /* iOS safe area */
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
 
 /* ===== LAYOUT ===== */
 #app {
-  width: 100vw;
-  height: 100vh;
-  height: 100dvh;
+  width: 100%;
+  height: 100%;
   position: relative;
   overflow: hidden;
 }
@@ -132,13 +137,14 @@ body {
 .screen.active {
   display: flex;
   flex-direction: column;
-  animation: fadeIn var(--duration-slow) var(--ease-out);
 }
 
 /* 로비/셋업 등 풀스크린 오버레이는 전체 클릭 받음 */
 .screen.fullscreen-ui {
   pointer-events: auto;
   background: rgba(13, 11, 26, 0.95);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 게임 화면 — 하단 패널만 클릭 받음 */
@@ -146,17 +152,9 @@ body {
   pointer-events: none;
 }
 
-#screen-game .bottom-panel {
-  pointer-events: auto;
-}
-
-#screen-game .top-hud {
-  pointer-events: auto;
-}
-
-/* ===== TOP HUD (게임 중) ===== */
+/* ===== TOP HUD (게임 중) — position:fixed로 뷰포트 기준 ===== */
 .top-hud {
-  position: absolute;
+  position: fixed;
   top: 12px;
   left: 12px;
   right: 12px;
@@ -170,27 +168,35 @@ body {
   border-radius: var(--radius-xl);
   padding: 10px 20px;
   font-size: var(--text-sm);
-  z-index: 20;
+  z-index: 50;
+  pointer-events: auto;
+  display: none; /* JS가 게임 화면일때 보이게 */
 }
 
-/* ===== BOTTOM PANEL (게임 중) ===== */
+/* 게임 화면이 active일 때 HUD 보이기 */
+#screen-game.active ~ .top-hud,
+#screen-game.active .top-hud {
+  display: flex;
+}
+
+/* ===== BOTTOM PANEL (게임 중) — position:fixed로 뷰포트 기준 ===== */
 .bottom-panel {
-  position: absolute;
+  position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  max-height: 55vh;
-  max-height: 55dvh;
+  max-height: 55%;
   background: rgba(13, 11, 26, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0));
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  z-index: 20;
-  animation: slideUp var(--duration-slow) var(--ease-out);
+  z-index: 50;
+  pointer-events: auto;
 }
 
 .bottom-panel .panel-title {
@@ -211,6 +217,29 @@ body {
   display: flex;
   gap: var(--sp-sm);
   flex-wrap: wrap;
+}
+
+/* ===== MODAL — position:fixed ===== */
+#modal-overlay {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+#modal-content {
+  max-height: 80%;
+  width: 88%;
+  max-width: 420px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ===== GLASS CARD ===== */
@@ -518,19 +547,17 @@ body {
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
 @keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateY(40px);
+    transform: translateY(30px);
   }
 
   to {
@@ -672,7 +699,6 @@ body {
 
 /* ===== MOBILE RESPONSIVE ===== */
 @media (max-width: 480px) {
-  /* Lobby screen — prevent overflow and ensure buttons fit */
   .screen.fullscreen-ui > div {
     padding: var(--sp-md) !important;
   }
@@ -685,7 +711,6 @@ body {
     padding: var(--sp-md) !important;
   }
 
-  /* Top HUD — compact on mobile */
   .top-hud {
     top: 6px;
     left: 6px;
@@ -695,11 +720,10 @@ body {
     border-radius: var(--radius-lg);
   }
 
-  /* Bottom Panel — give it more room on small screens */
   .bottom-panel {
-    max-height: 60vh;
-    max-height: 60dvh;
-    padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0));
+    max-height: 60%;
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 
@@ -714,9 +738,7 @@ body {
     line-height: 1.3;
   }
 
-  /* NPC pick grid — 2 cols but smaller */
   .npc-pick-grid {
-    grid-template-columns: 1fr 1fr;
     gap: 6px;
   }
 
@@ -725,11 +747,6 @@ body {
     font-size: var(--text-xs);
   }
 
-  .npc-pick-item div[style*="font-size:2rem"] {
-    font-size: 1.5rem !important;
-  }
-
-  /* Action buttons — smaller padding */
   .date-action-btn {
     min-width: 70px;
     padding: var(--sp-sm);
@@ -741,41 +758,22 @@ body {
     margin-bottom: 2px;
   }
 
-  /* Buttons — slightly smaller on mobile */
   .btn-lg {
     padding: var(--sp-sm) var(--sp-lg);
     font-size: var(--text-sm);
   }
 
-  /* Modal — ensure it fits on mobile */
-  #modal-overlay {
-    padding: var(--sp-md);
-  }
-
-  #modal-content {
-    max-height: 70vh !important;
-    max-height: 70dvh !important;
-    width: 92% !important;
-  }
-
-  /* Token display */
   .token-display {
     font-size: 0.65rem;
     padding: 2px 6px;
   }
-
-  /* Final results */
-  #screen-final .glass-card {
-    padding: var(--sp-md) !important;
-  }
 }
 
-/* Extra small screens (very short phones, landscape) */
-@media (max-height: 600px) {
+@media (max-height: 500px) {
   .bottom-panel {
-    max-height: 65vh;
-    max-height: 65dvh;
-    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0));
+    max-height: 65%;
+    padding: 8px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0));
   }
 
   .bottom-panel .panel-title {
@@ -814,11 +812,5 @@ body {
   .btn-lg {
     padding: 8px 16px;
     font-size: var(--text-xs);
-  }
-
-  /* Fullscreen UI screens should scroll */
-  .screen.fullscreen-ui > div {
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch;
   }
 }
