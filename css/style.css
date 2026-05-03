@@ -170,13 +170,7 @@ body {
   font-size: var(--text-sm);
   z-index: 50;
   pointer-events: auto;
-  display: none; /* JS가 게임 화면일때 보이게 */
-}
-
-/* 게임 화면이 active일 때 HUD 보이기 */
-#screen-game.active ~ .top-hud,
-#screen-game.active .top-hud {
-  display: flex;
+  /* visibility는 JS에서 display:none/flex로 제어 */
 }
 
 /* ===== BOTTOM PANEL (게임 중) — position:fixed로 뷰포트 기준 ===== */
